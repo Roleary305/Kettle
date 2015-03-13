@@ -1,0 +1,215 @@
+#include <DallasTemperature.h>
+#include <PID_v1.h>
+#include <OneWire.h>
+#include <LiquidCrystal.h>
+#include <Bounce2.h>
+
+#define encoderPush 24
+#define encoderB 42
+#define encoderA 52
+#define RelayPin 6
+//Set up DS18B20
+#define ONE_WIRE_BUS 9
+
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature Sensors(&oneWire);
+
+
+//Setup for the encoder
+int counter = 0;
+//Bounce bouncer = Bounce();
+int buttonstate = 0 ;
+int Temp = 0;
+String picommand = "";
+boolean stringcomplete = false;
+boolean systemon = true;
+
+LiquidCrystal lcd(12, 13, 2, 3, 4, 5);
+
+
+
+
+//Set Up for PID
+double Setpoint, Input, Output ;
+PID myPID(&Input, &Output, &Setpoint, 2, 5, 1, DIRECT);
+
+void setup()
+{
+
+Serial.begin(9600);
+lcd.begin(16,2);
+
+
+//Greeting message
+lcd.print("Good Morning");
+delay(1000);
+lcd.clear();
+
+
+
+//Encoder
+pinMode(encoderA, INPUT);
+pinMode(encoderB, INPUT);
+//bouncer.attach(encoderB);
+//bouncer.interval(5);
+
+//Set up for PID
+Input = 0;
+Setpoint = 93;
+myPID.SetMode(AUTOMATIC);
+ 
+}
+
+void loop()
+{
+
+
+//Backlight
+pinMode(10, OUTPUT);
+pinMode(8, OUTPUT);
+analogWrite(8, 200);
+analogWrite(10, 25);
+
+
+
+char PiChar[7];
+
+buttonstate = digitalRead(encoderPush);
+if (buttonstate == HIGH) encoderchange();
+
+
+
+//Reads the DS18B20 and converts to Celius. This needs to be tested.
+Temp = Sensors.getTempCByIndex(9); 
+Input = Temp ;
+  
+//PID to control the output to the relay
+myPID.Compute();
+analogWrite(3, Output);
+
+//Controls if the system is on or off.
+
+  while(systemon == false)
+  {
+  
+  Serial.println('System is off');
+  analogWrite(3, 0);
+ 
+   picommand.toCharArray(PiChar,7);
+   if (PiChar == "sysonn") systemon = true ;
+
+  }
+//Serial comms monitor to run the change setpoint. Listens for commands from the PI
+
+if (stringcomplete)
+{  
+  if (picommand.toInt() >= 0 && picommand.toInt() <= 99) 
+
+  {
+  Setpoint = picommand.toInt() ;
+
+  //Used to view the incoming commands, to be removed with final version
+  lcd.setCursor(0,0);
+  lcd.print(picommand);
+  delay(1000);
+  lcd.clear();
+
+  picommand = "" ;
+  stringcomplete = false ;
+  }
+
+picommand.toCharArray(PiChar,7);
+if (PiChar == "sysoff") systemon = false ;
+  
+}
+
+/*
+if (digitalRead(12) == HIGH)//When the pour button is pressed it runs pump and closes valve
+{
+  digitalWrite(10, 1);
+  digitalWrite(11, 1);
+}
+else
+{
+  digitalWrite(10, 0);
+  digitalWrite(11, 0);
+}  
+*/
+
+lcdrefresh();
+
+}
+
+//Read incoming serial data and make a 6 caracter string or number.
+void serialEvent()
+{  
+  while(stringcomplete == false)
+  {
+   
+   delay(50); 
+    char inChar = Serial.read();
+    picommand.concat(inChar);    
+  if (picommand.length() == 6)
+   {
+   picommand.trim();
+   stringcomplete = true ;
+ 
+   }
+  }
+   lcdrefresh();
+}
+
+//Should read the encoder when the button is pressed.
+void encoderchange()
+{
+
+
+while (buttonstate == HIGH)
+{
+buttonstate = digitalRead(encoderPush);
+pinMode(10, OUTPUT);
+analogWrite(10, 255);
+unsigned long currentTime;
+unsigned long loopTime;
+unsigned char encoderA_prev;
+unsigned char encodeA;
+unsigned char encodeB;
+
+currentTime = millis();
+if(currentTime >= (loopTime + 3))
+{
+encodeA = digitalRead(encoderA);
+encodeB = digitalRead(encoderB);
+
+if ((!encodeA  && encoderA_prev))
+{
+if (encodeB) 
+{
+Setpoint = Setpoint + 0.1 ;
+}
+else {
+Setpoint = Setpoint - 0.1 ; 
+
+}
+}
+
+}
+
+encoderA_prev = encodeA ;
+lcdrefresh();
+loopTime = currentTime ;
+}
+}
+void lcdrefresh()
+
+{
+ lcd.setCursor(0,1);
+ lcd.print(Temp);
+ lcd.setCursor(8,1);
+ lcd.print(Setpoint);
+  lcd.home();
+  lcd.print(digitalRead(encoderA));
+  lcd.setCursor(5,0);
+  lcd.print(digitalRead(encoderB));
+  
+}
